@@ -1,6 +1,5 @@
 import random
 from dataclasses import dataclass
-from itertools import batched
 from typing import Literal
 
 type Matriz[T] = list[list[T]]
@@ -37,6 +36,9 @@ EXEMPLOS_PUROS_Y: list[tuple[Classificação, Matriz[Pixel]]] = [
 def gerar_exemplos_classificados(
     num_exemplos_por_classificao: int, gerador: random.Random, prob_flip: float
 ) -> list[tuple[Classificação, Vetor[Pixel]]]:
+    # Cada exemplo é uma cópia achatada do padrão, invertemos os pixels
+    # com uma certa probabilidade para simular ruído e usamos a classificação
+    # original para rotular o exemplo.
     return [
         (
             classificação,
