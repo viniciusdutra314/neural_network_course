@@ -1,20 +1,24 @@
-from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import reduce
-from itertools import batched, chain, repeat
+from itertools import accumulate, batched, chain, repeat
 from typing import NewType, cast
 
 import numpy as np
 from numpy import float64
 from numpy.typing import NDArray
 
-phi = np.tanh
-
 # O Numpy desencoraja o uso do tipo np.matrix, então só
 # iremos usar arrays e criar um NewType para distinguir
 # um array que é um vetor de um array que é uma matriz.
 Vetor = NewType("Vetor", NDArray[np.float64])
 Matriz = NewType("Matriz", NDArray[np.float64])
+
+
+phi = np.tanh
+
+
+def phi_prime(ativação: Vetor) -> Vetor:
+    return Vetor(1.0 - ativação**2)
 
 
 @dataclass(frozen=True)
@@ -43,9 +47,54 @@ def propagar_camada(camada: Camada, entrada: Vetor) -> Vetor:
     return cast(Vetor, phi(entrada @ camada.pesos + camada.viés))
 
 
-def backpropagate(
-    modelo: MLP, entrada: Vetor, saida_esperada: Vetor
-) -> GradienteMLP: ...
+def backpropagate(modelo: MLP, entrada: Vetor, saida_esperada: Vetor) -> GradienteMLP:
+    # Equações tiradas de:
+    # https://en.wikipedia.org/wiki/Backpropagation#Finding_the_derivative_of_the_error
+    L = len(modelo.camadas)
+
+    # Propagação direta: a_l = phi(a_(l-1) W_l + b_l).
+    ativações = tuple(
+        accumulate(
+            modelo.camadas,
+            lambda ativação, camada: propagar_camada(camada, ativação),
+            initial=entrada,
+        )
+    )
+
+    # Delta da saída: delta_L = (a_L - y) phi_prime(a_L).
+    ERRO = ativações[L] - saida_esperada
+    delta_L = Vetor(ERRO * phi_prime(ativações[L]))
+
+    # Camadas ocultas:
+    # delta_l = (delta_(l+1) W_(l+1).T) phi_prime(a_l).
+    deltas_reversos = accumulate(
+        zip(
+            reversed(modelo.camadas[1:L]),
+            reversed(ativações[1:L]),
+            strict=True,
+        ),
+        lambda delta, camada_e_ativação: Vetor(
+            (delta @ camada_e_ativação[0].pesos.T) * phi_prime(camada_e_ativação[1])
+        ),
+        initial=delta_L,
+    )
+    deltas = reversed(tuple(deltas_reversos))
+
+    return GradienteMLP(
+        camadas=tuple(
+            GradienteCamada(
+                # dW_l = outer(a_(l-1), delta_l)
+                pesos=Matriz(np.outer(ativação_anterior, delta)),
+                # db_l = delta_l
+                viés=delta,
+            )
+            for ativação_anterior, delta in zip(
+                ativações[:L],
+                deltas,
+                strict=True,
+            )
+        )
+    )
 
 
 def gradient_descent(
