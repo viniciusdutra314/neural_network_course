@@ -1,7 +1,10 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import reduce
-from itertools import accumulate, batched, chain, repeat
-from typing import NewType, cast
+from itertools import accumulate, batched, chain, pairwise
+from math import sqrt
+from random import Random
+from typing import NewType
 
 import numpy as np
 from numpy import float64
@@ -14,11 +17,8 @@ Vetor = NewType("Vetor", NDArray[np.float64])
 Matriz = NewType("Matriz", NDArray[np.float64])
 
 
-phi = np.tanh
-
-
-def phi_prime(ativação: Vetor) -> Vetor:
-    return Vetor(1.0 - ativação**2)
+def phi(potencial: NDArray[np.float64]) -> Vetor:
+    return Vetor(1 / (1 + np.exp(-potencial)))
 
 
 @dataclass(frozen=True)
@@ -43,53 +43,66 @@ class MLP:
     camadas: tuple[Camada, ...]
 
 
-def propagar_camada(camada: Camada, entrada: Vetor) -> Vetor:
-    return cast(Vetor, phi(entrada @ camada.pesos + camada.viés))
-
-
-def backpropagate(modelo: MLP, entrada: Vetor, saida_esperada: Vetor) -> GradienteMLP:
-    # Equações tiradas de:
-    # https://en.wikipedia.org/wiki/Backpropagation#Finding_the_derivative_of_the_error
-    L = len(modelo.camadas)
-
-    # Propagação direta: a_l = phi(a_(l-1) W_l + b_l).
-    ativações = tuple(
-        accumulate(
-            modelo.camadas,
-            lambda ativação, camada: propagar_camada(camada, ativação),
-            initial=entrada,
+def inicializar_modelo(
+    dimensões_camadas: tuple[int, ...],
+    inicializar_pesos: Callable[[tuple[int, int], int], Matriz],
+    inicializar_viés: Callable[[int, int], Vetor],
+) -> MLP:
+    return MLP(
+        camadas=tuple(
+            Camada(
+                pesos=inicializar_pesos((entradas, saídas), l),
+                viés=inicializar_viés(saídas, l),
+            )
+            for l, (entradas, saídas) in enumerate(pairwise(dimensões_camadas))
         )
     )
 
-    # Delta da saída: delta_L = (a_L - y) phi_prime(a_L).
-    ERRO = ativações[L] - saida_esperada
-    delta_L = Vetor(ERRO * phi_prime(ativações[L]))
 
-    # Camadas ocultas:
-    # delta_l = (delta_(l+1) W_(l+1).T) phi_prime(a_l).
+def propagar_camada(camada: Camada, entrada: Vetor) -> Vetor:
+    return phi(entrada @ camada.pesos + camada.viés)
+
+
+def backpropagate(
+    modelo: MLP,
+    entrada: Vetor,
+    saida_esperada: Vetor,
+) -> GradienteMLP:
+    # Equações tiradas dos slides da disciplina
+    L = len(modelo.camadas)
+    y = tuple(
+        accumulate(
+            modelo.camadas,
+            lambda y_anterior, camada: propagar_camada(camada, y_anterior),
+            initial=entrada,
+        )
+    )
+    t = saida_esperada
+    # Camada de saída:
+    delta_L = Vetor((t - y[L]) * y[L] * (1 - y[L]))
+
     deltas_reversos = accumulate(
-        zip(
-            reversed(modelo.camadas[1:L]),
-            reversed(ativações[1:L]),
-            strict=True,
-        ),
-        lambda delta, camada_e_ativação: Vetor(
-            (delta @ camada_e_ativação[0].pesos.T) * phi_prime(camada_e_ativação[1])
+        reversed(range(L - 1)),
+        lambda delta_l_mais_1, l: Vetor(
+            (delta_l_mais_1 @ modelo.camadas[l + 1].pesos.T)
+            * y[l + 1]
+            * (1 - y[l + 1])
         ),
         initial=delta_L,
     )
+
     deltas = reversed(tuple(deltas_reversos))
 
+    # dE/dw_ji = -delta_j y_i
+    # dE/db_j   = -delta_j
     return GradienteMLP(
         camadas=tuple(
             GradienteCamada(
-                # dW_l = outer(a_(l-1), delta_l)
-                pesos=Matriz(np.outer(ativação_anterior, delta)),
-                # db_l = delta_l
-                viés=delta,
+                pesos=Matriz(-np.outer(y_i, delta_j)),
+                viés=Vetor(-delta_j),
             )
-            for ativação_anterior, delta in zip(
-                ativações[:L],
+            for y_i, delta_j in zip(
+                y[:L],
                 deltas,
                 strict=True,
             )
@@ -143,7 +156,19 @@ def train(
     taxa_aprendizado: float64,
     épocas: int,
     tamanho_batch: int,
+    gerador_aleatório: Random,
 ) -> MLP:
+    batches = chain.from_iterable(
+        batched(
+            gerador_aleatório.sample(
+                exemplos_de_treinamento,
+                k=len(exemplos_de_treinamento),
+            ),
+            tamanho_batch,
+        )
+        for _ in range(épocas)
+    )
+
     return reduce(
         lambda modelo_anterior, batch: gradient_descent(
             modelo_anterior,
@@ -155,10 +180,7 @@ def train(
             ),
             taxa_aprendizado,
         ),
-        batched(
-            chain.from_iterable(repeat(exemplos_de_treinamento, épocas)),
-            tamanho_batch,
-        ),
+        batches,
         modelo,
     )
 
@@ -171,8 +193,7 @@ def forward(modelo: MLP, entrada: Vetor) -> Vetor:
     )
 
 
-def main():
-    print("Hello from ex02!")
+def main() -> None:
 
 
 if __name__ == "__main__":
