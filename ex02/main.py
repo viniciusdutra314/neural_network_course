@@ -17,7 +17,7 @@ Vetor = NewType("Vetor", NDArray[np.float64])
 Matriz = NewType("Matriz", NDArray[np.float64])
 
 
-def phi(potencial: NDArray[np.float64]) -> Vetor:
+def sigma(potencial: NDArray[np.float64]) -> Vetor:
     return Vetor(1 / (1 + np.exp(-potencial)))
 
 
@@ -60,7 +60,7 @@ def inicializar_modelo(
 
 
 def propagar_camada(camada: Camada, entrada: Vetor) -> Vetor:
-    return phi(entrada @ camada.pesos + camada.viés)
+    return sigma(entrada @ camada.pesos + camada.viés)
 
 
 def backpropagate(
@@ -84,9 +84,7 @@ def backpropagate(
     deltas_reversos = accumulate(
         reversed(range(L - 1)),
         lambda delta_l_mais_1, l: Vetor(
-            (delta_l_mais_1 @ modelo.camadas[l + 1].pesos.T)
-            * y[l + 1]
-            * (1 - y[l + 1])
+            (delta_l_mais_1 @ modelo.camadas[l + 1].pesos.T) * y[l + 1] * (1 - y[l + 1])
         ),
         initial=delta_L,
     )
@@ -194,6 +192,34 @@ def forward(modelo: MLP, entrada: Vetor) -> Vetor:
 
 
 def main() -> None:
+    ### Exemplo XOR
+    gerador = np.random.default_rng(123456789)
+    modelo: MLP = inicializar_modelo(
+        (2, 2, 1),
+        lambda dimensões, _: Matriz(
+            gerador.standard_normal(dimensões) / sqrt(dimensões[0])
+        ),
+        lambda dimensão, _: Vetor(np.zeros(dimensão)),
+    )
+    exemplos_xor = [
+        (Vetor(np.array([0.0, 0.0])), Vetor(np.array([0.0]))),
+        (Vetor(np.array([0.0, 1.0])), Vetor(np.array([1.0]))),
+        (Vetor(np.array([1.0, 0.0])), Vetor(np.array([1.0]))),
+        (Vetor(np.array([1.0, 1.0])), Vetor(np.array([0.0]))),
+    ]
+    modelo = train(
+        modelo,
+        exemplos_xor,
+        taxa_aprendizado=float64(1.0),
+        épocas=10_000,
+        tamanho_batch=4,
+        gerador_aleatório=Random(42),
+    )
+    print("Exemplos XOR")
+    for entrada, esperado in exemplos_xor:
+        saída = forward(modelo, entrada)
+        classe = 1 if saída[0] >= 0.5 else 0
+        print(f"{entrada=}, {saída=}, {esperado=}, {classe=}")
 
 
 if __name__ == "__main__":
