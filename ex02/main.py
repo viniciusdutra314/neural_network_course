@@ -1,8 +1,8 @@
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import reduce
 from itertools import accumulate, batched, chain, pairwise
-from math import sqrt
 from random import Random
 from typing import NewType
 
@@ -192,12 +192,14 @@ def forward(modelo: MLP, entrada: Vetor) -> Vetor:
 
 
 def main() -> None:
+    seed = 123456789
+    gerador_np = np.random.default_rng(seed)
+    gerador_random = Random(seed)
     ### Exemplo XOR
-    gerador = np.random.default_rng(123456789)
     modelo: MLP = inicializar_modelo(
         (2, 2, 1),
         lambda dimensões, _: Matriz(
-            gerador.standard_normal(dimensões) / sqrt(dimensões[0])
+            gerador_np.standard_normal(dimensões) / math.sqrt(dimensões[0])
         ),
         lambda dimensão, _: Vetor(np.zeros(dimensão)),
     )
@@ -213,13 +215,53 @@ def main() -> None:
         taxa_aprendizado=float64(1.0),
         épocas=10_000,
         tamanho_batch=4,
-        gerador_aleatório=Random(42),
+        gerador_aleatório=gerador_random,
     )
     print("Exemplos XOR")
     for entrada, esperado in exemplos_xor:
         saída = forward(modelo, entrada)
         classe = 1 if saída[0] >= 0.5 else 0
         print(f"{entrada=}, {saída=}, {esperado=}, {classe=}")
+
+    # Exemplos autoassociador
+    print("Exemplos autoassociador")
+    for N, épocas in [(8, 10_000), (15, 10_000)]:
+        N_log2 = math.ceil(math.log2(N))
+        modelo = inicializar_modelo(
+            (N, N_log2, N),
+            lambda dimensões, _: Matriz(
+                gerador_np.standard_normal(dimensões) / math.sqrt(dimensões[0])
+            ),
+            lambda dimensão, _: Vetor(np.zeros(dimensão)),
+        )
+
+        identidade = np.eye(N)
+        exemplos = [(Vetor(linha.copy()), Vetor(linha.copy())) for linha in identidade]
+        modelo = train(
+            modelo,
+            exemplos,
+            taxa_aprendizado=float64(1.0),
+            épocas=épocas,
+            tamanho_batch=len(exemplos),
+            gerador_aleatório=gerador_random,
+        )
+
+        print(f"\nAutoassociador Id({N}x{N}): {N} -> {N_log2} -> {N}")
+        print("padrão\tbits reconstruídos\tErro Quadrático".expandtabs(20))
+        corretos = 0
+        for índice, (entrada, esperado) in enumerate(exemplos):
+            saída = forward(modelo, entrada)
+            bits_reconstruídos = [i + 1 for i in range(N) if saída[i] >= 0.5]
+            correto = bits_reconstruídos == [índice + 1]
+            erro_quadrático_médio = np.mean((esperado - saída) ** 2)
+            corretos += correto
+            print(
+                f"{índice + 1}\t{bits_reconstruídos}\t{erro_quadrático_médio:.6f}".expandtabs(
+                    20
+                )
+            )
+
+        print(f"Padrões reconstruídos corretamente: {corretos}/{N}")
 
 
 if __name__ == "__main__":
