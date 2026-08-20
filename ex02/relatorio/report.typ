@@ -84,8 +84,7 @@ Foram considerados os casos $"Id"(8 times 8)$ e $"Id"(15 times 15)$.
     fill: (_, row) => if row == 0 { pale },
     table.header([*Símbolo*], [*Definição*]),
     [$ell$ e $L$], [Índice de uma camada e número total de camadas.],
-    [$x$ e $a^(ell)$],
-    [Entrada ($a^(0) = x$) e ativação da camada $ell$; no código, `a` é a tupla de todas as ativações.],
+    [$x$ e $a^(ell)$], [Entrada ($a^(0) = x$) e ativação da camada $ell$.],
 
     [$W^(ell)$, $b^(ell)$ e $z^(ell)$],
     [Matriz de pesos, vetor de vieses e potencial
@@ -93,23 +92,20 @@ Foram considerados os casos $"Id"(8 times 8)$ e $"Id"(15 times 15)$.
 
     [$sigma$, $t$ e $delta^(ell)$],
     [Sigmoide, saída esperada e $delta^(ell) = -(partial E) / (partial z^(ell))$,
-      em que $E = 1 / 2 sum_j (t_j - a_j^(L))^2$; `delta_L` representa $delta^(L)$.],
-
-    [$eta$, $n_i$, $n_j$, $n_"in"$ e $N$],
-    [Taxa de aprendizado; dimensões das camadas; número de entradas de um neurônio; dimensão do padrão.],
+      em que $E = 1 / 2 sum_j (t_j - a_j^(L))^2$],
   )
 ]
 
 == Implementação
 
-O código utiliza somente a biblioteca Numpy para implementar o MLP basicamente do zero, o paradigma
+O código utiliza somente a biblioteca NumPy para implementar o MLP basicamente do zero, o paradigma
 usado foi de programação funcional dada a natureza extremamente matemática do problema.
 
 O programa representa cada camada pela dataclass `Camada`, que reúne a matriz de pesos e o vetor
 de vieses, uma MLP é simplesmente uma sequência dessas camadas.
 
 Na função `inicializar_modelo`, os pesos são amostrados de uma distribuição normal e divididos por
-$sqrt(n_"in")$, onde $n_"in"$ é o número de entradas da camada; todos os vieses começam em zero.
+$sqrt(n_"in")$, onde $n_"in"$ é o número de entradas da camada, todos os vieses começam em zero.
 A divisão por $sqrt(n_"in")$ faz com que os pesos tenham média zero e
 variância $"Var"(W_(i j)) = 1 / n_"in"$.
 Isso reduz a probabilidade de iniciar a sigmoide nas regiões saturadas, nas quais
@@ -117,7 +113,7 @@ os gradientes retropropagados se tornam muito pequenos.
 
 
 A etapa forward da MLP é implementada pela função `forward`, conceitualmente a propagação da camada de
-entrada até a saida é a composição de L funções $RR^(n_i) arrow RR^(n_j)$ em que $n_i$ é o número de números
+entrada até a saída é a composição de L funções $RR^(n_i) arrow RR^(n_j)$ em que $n_i$ é o número de números
 na camada i e $n_j$ é o número de números na camada j.
 
 #codly-range(180, end: 188)
@@ -133,7 +129,7 @@ na camada i e $n_j$ é o número de números na camada j.
 
 
 Na etapa de backpropagation, é necessário calcular as derivadas parciais da função de custo em relação
-a cada peso e vies. Para isso, é necessário calcular $delta^(ell)$, isso é separado em dois casos
+a cada peso e viés. Para isso, é necessário calcular $delta^(ell)$, isso é separado em dois casos
 
 Na camada final:
 
@@ -153,15 +149,11 @@ $a^(ell)$; no sentido inverso, propaga os deltas $delta^(ell)$ entre as camadas.
 Com eles é possível calcular os gradientes de cada camada e atualizar os parâmetros.
 
 $
-  (partial E)/(partial W^(i j))=-delta_j a_i^T
-$
-
-$
-  (partial E)/(partial b^(j))=-delta^(j)
+  (partial E)/(partial W_(i j))=-delta_j a_i^T "e " (partial E)/(partial b^(j))=-delta^(j)
 $
 
 
-#codly-range(62, end: 103)
+#codly-range(69, end: 103)
 #figure(
   align(center)[
     #block(width: 72%)[
@@ -169,14 +161,14 @@ $
       #raw(main-code, lang: "python", block: true)
     ]
   ],
-  caption: [Deltas e gradientes de `backpropagate`, extraídos diretamente de `main.py`.],
+  caption: [Implementação da função backpropagate],
 )
 
 Em `train`, os exemplos são embaralhados a cada época, separados em lotes e processados por
 backpropagation.
 `média_gradientes` calcula a média do lote, gerando assim o gradiente médio.
 
-== Experimentos
+== Resultados
 
 Para o XOR, foram usados os quatro pares binários possíveis e a arquitetura é $2 arrow.r 2 arrow.r 1$.
 Para os autoassociadores, cada linha de $"Id"(N times N)$ é simultaneamente entrada e alvo.
@@ -186,10 +178,11 @@ $8 arrow.r 3 arrow.r 8$ e $15 arrow.r 4 arrow.r 15$.
 Em todos os casos, o treinamento usa $eta = 1$, 10.000 épocas e lotes de tamanho igual ao número de exemplos.
 Uma saída é interpretada como 1 quando sua ativação é maior ou igual a $0,5$ e 0 caso contrário.
 
-Como é visível na @fig:resultados, as redes conseguirem aprender os padrões desejados, com
-um RMSE (root mean square error) na casa de $10^(-2)$
+Como é visível na @fig:resultados, as redes conseguiram aprender os padrões desejados, com
+um RMSE (root mean square error) na casa de $10^(-2)$, mesmo em um caso específico em que o RMSE é $10^(-1)$, isso não faz
+tanta diferença pois a classificação é binária.
 
 #figure(
-  image("resultados.jpeg", width: 60%),
-  caption: [Screenshot da execução do código],
+  image("resultados.jpeg", width: 55%),
+  caption: [Captura de tela da execução do código],
 ) <fig:resultados>
