@@ -59,10 +59,6 @@ def inicializar_modelo(
     )
 
 
-def propagar_camada(camada: Camada, entrada: Vetor) -> Vetor:
-    return sigma(entrada @ camada.pesos + camada.viés)
-
-
 def backpropagate(
     modelo: MLP,
     entrada: Vetor,
@@ -70,37 +66,35 @@ def backpropagate(
 ) -> GradienteMLP:
     # Equações tiradas dos slides da disciplina
     L = len(modelo.camadas)
-    y = tuple(
+    a = tuple(
         accumulate(
             modelo.camadas,
-            lambda y_anterior, camada: propagar_camada(camada, y_anterior),
+            lambda a_anterior, camada: sigma(a_anterior @ camada.pesos + camada.viés),
             initial=entrada,
         )
     )
     t = saida_esperada
-    # Camada de saída:
-    delta_L = Vetor((t - y[L]) * y[L] * (1 - y[L]))
-
-    deltas_reversos = accumulate(
-        reversed(range(L - 1)),
-        lambda delta_l_mais_1, l: Vetor(
-            (delta_l_mais_1 @ modelo.camadas[l + 1].pesos.T) * y[l + 1] * (1 - y[l + 1])
-        ),
-        initial=delta_L,
+    deltas = reversed(
+        tuple(
+            accumulate(
+                reversed(range(L - 1)),
+                lambda delta_l_mais_1, l: Vetor(
+                    (delta_l_mais_1 @ modelo.camadas[l + 1].pesos.T)
+                    * a[l + 1]
+                    * (1 - a[l + 1])
+                ),
+                initial=Vetor((t - a[L]) * a[L] * (1 - a[L])),
+            ),
+        )
     )
-
-    deltas = reversed(tuple(deltas_reversos))
-
-    # dE/dw_ji = -delta_j y_i
-    # dE/db_j   = -delta_j
     return GradienteMLP(
         camadas=tuple(
             GradienteCamada(
-                pesos=Matriz(-np.outer(y_i, delta_j)),
-                viés=Vetor(-delta_j),
+                pesos=Matriz(-np.outer(a_i, delta_j)),  # dE/dw_ji = -a_i delta_j
+                viés=Vetor(-delta_j),  # dE/db_j   = -delta_j
             )
-            for y_i, delta_j in zip(
-                y[:L],
+            for a_i, delta_j in zip(
+                a[:L],
                 deltas,
                 strict=True,
             )
@@ -185,7 +179,9 @@ def train(
 
 def forward(modelo: MLP, entrada: Vetor) -> Vetor:
     return reduce(
-        lambda ativação_anterior, camada: propagar_camada(camada, ativação_anterior),
+        lambda ativação_anterior, camada: sigma(
+            ativação_anterior @ camada.pesos + camada.viés
+        ),
         modelo.camadas,
         entrada,
     )
@@ -221,7 +217,11 @@ def main() -> None:
     for entrada, esperado in exemplos_xor:
         saída = forward(modelo, entrada)
         classe = 1 if saída[0] >= 0.5 else 0
-        print(f"{entrada=}, {saída=}, {esperado=}, {classe=}")
+        rmse = np.sqrt(np.mean((esperado - saída) ** 2))
+        print(
+            f"{entrada=}, saida={saída[0]:.4f}, "
+            f"esperado={esperado[0]:.4f}, {classe=}, {rmse=:.4f}"
+        )
 
     # Exemplos autoassociador
     print("Exemplos autoassociador")
@@ -247,19 +247,15 @@ def main() -> None:
         )
 
         print(f"\nAutoassociador Id({N}x{N}): {N} -> {N_log2} -> {N}")
-        print("padrão\tbits reconstruídos\tErro Quadrático".expandtabs(20))
+        print("padrão\tbits reconstruídos\tRMSE".expandtabs(20))
         corretos = 0
         for índice, (entrada, esperado) in enumerate(exemplos):
             saída = forward(modelo, entrada)
             bits_reconstruídos = [i + 1 for i in range(N) if saída[i] >= 0.5]
             correto = bits_reconstruídos == [índice + 1]
-            erro_quadrático_médio = np.mean((esperado - saída) ** 2)
+            rmse = np.sqrt(np.mean((esperado - saída) ** 2))
             corretos += correto
-            print(
-                f"{índice + 1}\t{bits_reconstruídos}\t{erro_quadrático_médio:.6f}".expandtabs(
-                    20
-                )
-            )
+            print(f"{índice + 1}\t{bits_reconstruídos}\t{rmse:.4f}".expandtabs(20))
 
         print(f"Padrões reconstruídos corretamente: {corretos}/{N}")
 
