@@ -28,14 +28,14 @@
     taxa
   }
 
-  let acurácia(camada, ciclo, taxa, momentum) = {
+  let valor-validação(camada, ciclo, taxa, momentum) = {
     let linha = resultados.find(linha => (
       linha.at("camadas") == camada
         and linha.at("ciclos") == ciclo
         and linha.at("taxa_aprendizado") == taxa
         and linha.at("momentum") == momentum
     ))
-    float(linha.at("acurácia_validação"))
+    float(linha.at("valor_validação"))
   }
 
   let cor(valor) = if valor >= 0.9 {
@@ -67,7 +67,7 @@
 
       for momentum in momentums {
         for taxa in taxas {
-          let valor = acurácia(camada, ciclo, taxa, momentum)
+          let valor = valor-validação(camada, ciclo, taxa, momentum)
           células.push(table.cell(
             fill: cor(valor),
           )[

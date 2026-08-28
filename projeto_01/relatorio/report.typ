@@ -68,8 +68,8 @@ aos datasets serem pequenos
 == Dados
 Os datasets estão guardados na pasta `datasets/` com os arquivos originais dos sites #footnote[
   https://archive.ics.uci.edu/dataset/109/wine e https://archive.ics.uci.edu/dataset/315/geographical+original+of+music.
-], o pre-processamento é feito pelas funções `carregar_wine_dataset` e `carregar_music_dataset`, elas normalizam os atributos
-para terem $mu=0$ e $std=1$, afim de evitar qualquer tipo de saturação dos neurônios. Mesmo que os datasets sejam conceitualmente
+], o pré-processamento é feito depois da separação dos dados. A média e o desvio padrão são calculados somente com o conjunto
+de treinamento e usados para normalizar as três partições, evitando vazamento de dados. Mesmo que os datasets sejam conceitualmente
 colunas de uma tabela, eles são convertidos para ser um objeto tensor `pytorch.Tensor`
 
 == Otimização
