@@ -1,6 +1,6 @@
 import csv
 import itertools
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import NamedTuple, TypedDict
 
@@ -154,13 +154,16 @@ def treinos_com_diferentes_hiperparâmetros(
     partições: Partições,
     loss_fn: FunçãoPerda,
     métrica: FunçãoMétrica,
+    maximizar: bool,
     /,
     nums_camadas: Iterable[int],
     nums_ciclos: Iterable[int],
     taxas_aprendizado: Iterable[float],
     momentums: Iterable[float],
-) -> list[Resultado]:
+) -> tuple[list[Resultado], torch.nn.Module]:
     resultados: list[Resultado] = []
+    melhor_modelo: torch.nn.Module | None = None
+    melhor_valor = float("-inf") if maximizar else float("inf")
     neuronios_entrada = partições.treinamento.atributos.shape[1]
     neuronios_saida = quantidade_neuronios_saida(partições.treinamento.alvos)
     configurações = itertools.product(
@@ -181,26 +184,36 @@ def treinos_com_diferentes_hiperparâmetros(
             num_ciclo=num_ciclos,
             loss_fn=loss_fn,
         )
+        valor_validação = métrica(modelo, partições.validação)
         resultados.append(
             {
                 "camadas": num_camadas,
                 "ciclos": num_ciclos,
                 "taxa_aprendizado": taxa_aprendizado,
                 "momentum": momentum,
-                "valor_validação": métrica(modelo, partições.validação),
+                "valor_validação": valor_validação,
             }
         )
-    return resultados
+        if melhor_modelo is None or (
+            valor_validação > melhor_valor
+            if maximizar
+            else valor_validação < melhor_valor
+        ):
+            melhor_modelo = modelo
+            melhor_valor = valor_validação
+
+    assert melhor_modelo is not None
+    return resultados, melhor_modelo
 
 
-def salvar_resultados(
-    resultados: list[Resultado],
+def salvar_csv(
+    resultados: Sequence[Mapping[str, object]],
     path: Path,
 ) -> None:
     with path.open("w", newline="", encoding="utf-8") as arquivo:
         escritor = csv.DictWriter(
             arquivo,
-            fieldnames=resultados[0],
+            fieldnames=resultados[0].keys(),
             lineterminator="\n",
         )
         escritor.writeheader()
@@ -208,51 +221,92 @@ def salvar_resultados(
 
 
 def main() -> None:
-    WINE_DATASET_DIR = (
-        Path(__file__).resolve().parent / "datasets" / "wine" / "wine.txt"
-    )
-    WINE_TABLE = Path(__file__).resolve().parent / "relatorio" / "wine_tabela.csv"
+    DIRETÓRIO = Path(__file__).resolve().parent
+    WINE_DATASET_DIR = DIRETÓRIO / "datasets" / "wine" / "wine.txt"
+    WINE_TABLE = DIRETÓRIO / "relatorio" / "wine_tabela.csv"
     WINE_DATASET = carregar_wine_dataset(WINE_DATASET_DIR)
     MUSIC_DATASET_DIR = (
-        Path(__file__).resolve().parent
+        DIRETÓRIO
         / "datasets"
         / "geographical_original_of_music"
         / "default_features_1059_tracks.txt"
     )
-    MUSIC_TABLE = Path(__file__).resolve().parent / "relatorio" / "music_tabela.csv"
+    MUSIC_TABLE = DIRETÓRIO / "relatorio" / "music_tabela.csv"
     MUSIC_DATASET = carregar_music_dataset(MUSIC_DATASET_DIR)
+    RESUMO = DIRETÓRIO / "relatorio" / "resumo.csv"
 
     CAMADAS = (1, 2, 3)
-    CICLOS = (100, 200, 300)
+    CICLOS = (10, 20, 40)
     TAXAS_APRENDIZADO = (1e-3, 1e-2, 1e-1)
     MOMENTUMS = (0.0, 0.5, 0.9)
 
     configurações = [
         (
+            "Wine",
+            "Acurácia",
             WINE_DATASET,
             WINE_TABLE,
             torch.nn.CrossEntropyLoss(),
             porcentagem_acertos,
+            True,
         ),
         (
+            "Música",
+            "MSE",
             MUSIC_DATASET,
             MUSIC_TABLE,
             torch.nn.MSELoss(),
             erro_quadrático_médio,
+            False,
         ),
     ]
-    for dataset, table_dir, loss_fn, métrica in configurações:
+    resumo: list[dict[str, object]] = []
+    for (
+        nome,
+        nome_métrica,
+        dataset,
+        table_dir,
+        loss_fn,
+        métrica,
+        maximizar,
+    ) in configurações:
         partições = particiona_em_treinamento_validação_teste(dataset)
-        resultados = treinos_com_diferentes_hiperparâmetros(
+        resultados, melhor_modelo = treinos_com_diferentes_hiperparâmetros(
             partições,
             loss_fn,
             métrica,
+            maximizar,
             nums_camadas=CAMADAS,
             nums_ciclos=CICLOS,
             taxas_aprendizado=TAXAS_APRENDIZADO,
             momentums=MOMENTUMS,
         )
-        salvar_resultados(resultados, table_dir)
+        salvar_csv(resultados, table_dir)
+        melhor = (max if maximizar else min)(
+            resultados,
+            key=lambda resultado: resultado["valor_validação"],
+        )
+        referência: float | str = ""
+        if nome == "Música":
+            média_alvos = partições.treinamento.alvos.mean(dim=0)
+            referência = torch.nn.functional.mse_loss(
+                média_alvos.expand_as(partições.teste.alvos), partições.teste.alvos
+            ).item()
+        resumo.append(
+            {
+                "base": nome,
+                "métrica": nome_métrica,
+                **{
+                    chave: melhor[chave]
+                    for chave in ("camadas", "ciclos", "taxa_aprendizado", "momentum")
+                },
+                "treinamento": métrica(melhor_modelo, partições.treinamento),
+                "validação": melhor["valor_validação"],
+                "teste": métrica(melhor_modelo, partições.teste),
+                "referência": referência,
+            }
+        )
+    salvar_csv(resumo, RESUMO)
 
 
 if __name__ == "__main__":
