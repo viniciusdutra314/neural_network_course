@@ -87,7 +87,7 @@ relação a cada paramêtro.
 O treinamento usa todos os exemplos em cada ciclo para calcular o gradiente, os pesos são atualizados
 pelo otimizador SGD (Stochastic Gradient Descent) com diferente valores de momentum e taxa de aprendizado.
 
-== Resumo
+== Resultados
 
 Foram avaliadas as 81 combinações do produto cartesiano camadas_intermediária=[1, 2, 3]
 $times$ ciclos=[10, 20, 40] $times$ taxas_aprendizado=[$10^(-3)$, $10^(-2)$, $10^(-1)$]
@@ -97,11 +97,11 @@ e a qualidade do modelo é testada pela partição de validação (10% do datase
 para selecionar a priori o que seria o melhor conjunto de hiperparâmetros.
 
 
-=== Wine
+=== Melhores Modelos
 
 #let resumo = csv("resumo.csv", row-type: dictionary)
-#let wine = resumo.find(linha => linha.at("base") == "Wine")
-#let música = resumo.find(linha => linha.at("base") == "Música")
+#let wine = resumo.find(linha => linha.at("dataset") == "Wine")
+#let música = resumo.find(linha => linha.at("dataset") == "Música")
 #let percentual(valor) = {
   str(calc.round(float(valor) * 10000) / 100).replace(".", ",") + "%"
 }
@@ -177,8 +177,9 @@ a uma distância em quilômetros.
     #tabela-resultados("wine_tabela.csv", porcentagem: true)
   ],
   caption: [
-    Acurácia de validação das 81 configurações de Wine. Tons mais escuros indicam
-    maior acurácia; as subcolunas são as taxas de aprendizado.
+    Acurácia de validação das 81 configurações de Wine. Tons mais claros,
+    no extremo azul-claro da escala, indicam maior acurácia. Cada grupo de
+    colunas representa uma taxa de aprendizado e as subcolunas, o momentum.
   ],
 ) <tab:wine>
 
@@ -188,8 +189,9 @@ a uma distância em quilômetros.
     #tabela-resultados("music_tabela.csv", menor-melhor: true)
   ],
   caption: [
-    MSE de validação das 81 configurações de Music Origin. Tons mais escuros indicam
-    menor erro; as subcolunas são as taxas de aprendizado.
+    MSE de validação das 81 configurações de Music Origin. Tons mais claros,
+    no extremo azul-claro da escala, indicam menor erro. Cada grupo de colunas
+    representa uma taxa de aprendizado e as subcolunas, o momentum.
   ],
 ) <tab:música>
 

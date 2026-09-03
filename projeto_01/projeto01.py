@@ -1,22 +1,20 @@
 import csv
 import itertools
+import math
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import NamedTuple, TypedDict
+from typing import NamedTuple, TypedDict, cast
 
 import numpy as np
 import torch
 
 type FunçãoPerda = torch.nn.CrossEntropyLoss | torch.nn.MSELoss
-
+type FunçãoMétrica = Callable[[torch.nn.Module, Dataset], float]
+SEED = 123456789
 
 class Dataset(NamedTuple):
     alvos: torch.Tensor
     atributos: torch.Tensor
-
-
-type FunçãoMétrica = Callable[[torch.nn.Module, Dataset], float]
-
 
 class Partições(NamedTuple):
     treinamento: Dataset
@@ -50,49 +48,26 @@ def particiona_em_treinamento_validação_teste(
     dataset: Dataset,
 ) -> Partições:
     quantidade = dataset.alvos.shape[0]
-    quantidade_teste = round(quantidade * 0.2)
     quantidade_validação = round(quantidade * 0.1)
-    quantidade_treinamento = quantidade - quantidade_teste - quantidade_validação
-    índices = torch.randperm(quantidade)
+    quantidade_teste = round(quantidade * 0.2)
+    quantidade_treinamento = quantidade - (quantidade_teste + quantidade_validação)
+    índices_treinamento, índices_validação, índices_teste = torch.randperm(
+        quantidade
+    ).split((quantidade_treinamento, quantidade_validação, quantidade_teste))
 
-    índices_treino = índices[:quantidade_treinamento]
-    índices_validação = índices[
-        quantidade_treinamento : quantidade_treinamento + quantidade_validação
-    ]
-    índices_teste = índices[quantidade_treinamento + quantidade_validação :]
-
-    treinamento = Dataset(
-        dataset.alvos[índices_treino],
-        dataset.atributos[índices_treino],
-    )
-    validação = Dataset(
-        dataset.alvos[índices_validação],
-        dataset.atributos[índices_validação],
-    )
-    teste = Dataset(
-        dataset.alvos[índices_teste],
-        dataset.atributos[índices_teste],
-    )
-
-    média = treinamento.atributos.mean(dim=0)
-    desvio = treinamento.atributos.std(dim=0)
-
-    def normalizar(partição: Dataset) -> Dataset:
-        return Dataset(
-            partição.alvos,
-            (partição.atributos - média) / desvio,
-        )
+    def selecionar(dataset: Dataset, índices: torch.Tensor) -> Dataset:
+        return Dataset(dataset.alvos[índices], dataset.atributos[índices])
 
     return Partições(
-        normalizar(treinamento),
-        normalizar(validação),
-        normalizar(teste),
+        selecionar(dataset, índices_treinamento),
+        selecionar(dataset, índices_validação),
+        selecionar(dataset, índices_teste),
     )
 
 
 def criar_modelo(
     neuronios_entrada: int,
-    camadas_intermediárias: Iterable[int],
+    camadas_intermediárias: Sequence[int],
     neuronios_saida: int,
 ) -> torch.nn.Sequential:
     assert neuronios_entrada > 0, "É necessário pelo menos 1 um neurônio de entrada"
@@ -111,8 +86,7 @@ def criar_modelo(
 
 def treinar_modelo(
     modelo: torch.nn.Module,
-    entrada: torch.Tensor,
-    esperado: torch.Tensor,
+    dataset: Dataset,
     momentum: float,
     lr: float,
     num_ciclo: int,
@@ -121,15 +95,19 @@ def treinar_modelo(
     optimizer = torch.optim.SGD(modelo.parameters(), lr=lr, momentum=momentum)
     for _ in range(num_ciclo):
         optimizer.zero_grad()
-        loss = loss_fn(modelo(entrada), esperado)
+        loss = loss_fn(modelo(dataset.atributos), dataset.alvos)
         loss.backward()
         optimizer.step()
 
 
 def porcentagem_acertos(modelo: torch.nn.Module, dataset: Dataset) -> float:
     with torch.no_grad():
-        inferência = torch.argmax(modelo(dataset.atributos), dim=1)
-        return float(torch.sum(inferência == dataset.alvos) / len(inferência))
+        return float(
+            (modelo(dataset.atributos).argmax(dim=1) == dataset.alvos)
+            .float()
+            .mean()
+            .item()
+        )
 
 
 def erro_quadrático_médio(
@@ -137,17 +115,23 @@ def erro_quadrático_médio(
     dataset: Dataset,
 ) -> float:
     with torch.no_grad():
-        previsão = modelo(dataset.atributos)
         return torch.nn.functional.mse_loss(
-            previsão,
-            dataset.alvos,
+            modelo(dataset.atributos), dataset.alvos
         ).item()
 
 
 def quantidade_neuronios_saida(alvos: torch.Tensor) -> int:
-    if not alvos.is_floating_point():
-        return int(alvos.unique().numel())
-    return 1 if alvos.ndim == 1 else alvos.shape[1]
+    alvos_são_classes = not alvos.is_floating_point()
+    if alvos_são_classes:
+        quantidade_classes = alvos.unique().numel()
+        return int(quantidade_classes)
+
+    regressão_multivariada = alvos.ndim == 2
+    if regressão_multivariada:
+        quantidade_variáveis_resposta = alvos.shape[1]
+        return quantidade_variáveis_resposta
+
+    return 1
 
 
 def treinos_com_diferentes_hiperparâmetros(
@@ -163,7 +147,7 @@ def treinos_com_diferentes_hiperparâmetros(
 ) -> tuple[list[Resultado], torch.nn.Module]:
     resultados: list[Resultado] = []
     melhor_modelo: torch.nn.Module | None = None
-    melhor_valor = float("-inf") if maximizar else float("inf")
+    melhor_valor = -math.inf if maximizar else math.inf
     neuronios_entrada = partições.treinamento.atributos.shape[1]
     neuronios_saida = quantidade_neuronios_saida(partições.treinamento.alvos)
     configurações = itertools.product(
@@ -177,8 +161,7 @@ def treinos_com_diferentes_hiperparâmetros(
         )
         treinar_modelo(
             modelo,
-            partições.treinamento.atributos,
-            partições.treinamento.alvos,
+            partições.treinamento,
             momentum=momentum,
             lr=taxa_aprendizado,
             num_ciclo=num_ciclos,
@@ -221,19 +204,17 @@ def salvar_csv(
 
 
 def main() -> None:
+    _ = torch.manual_seed(SEED)
     DIRETÓRIO = Path(__file__).resolve().parent
-    WINE_DATASET_DIR = DIRETÓRIO / "datasets" / "wine" / "wine.txt"
-    WINE_TABLE = DIRETÓRIO / "relatorio" / "wine_tabela.csv"
-    WINE_DATASET = carregar_wine_dataset(WINE_DATASET_DIR)
-    MUSIC_DATASET_DIR = (
+    WINE_RESULTS = DIRETÓRIO / "relatorio" / "wine_tabela.csv"
+    WINE_DATASET = carregar_wine_dataset(DIRETÓRIO / "datasets" / "wine" / "wine.txt")
+    MUSIC_RESULTS = DIRETÓRIO / "relatorio" / "music_tabela.csv"
+    MUSIC_DATASET = carregar_music_dataset(
         DIRETÓRIO
         / "datasets"
         / "geographical_original_of_music"
         / "default_features_1059_tracks.txt"
     )
-    MUSIC_TABLE = DIRETÓRIO / "relatorio" / "music_tabela.csv"
-    MUSIC_DATASET = carregar_music_dataset(MUSIC_DATASET_DIR)
-    RESUMO = DIRETÓRIO / "relatorio" / "resumo.csv"
 
     CAMADAS = (1, 2, 3)
     CICLOS = (10, 20, 40)
@@ -245,7 +226,7 @@ def main() -> None:
             "Wine",
             "Acurácia",
             WINE_DATASET,
-            WINE_TABLE,
+            WINE_RESULTS,
             torch.nn.CrossEntropyLoss(),
             porcentagem_acertos,
             True,
@@ -254,7 +235,7 @@ def main() -> None:
             "Música",
             "MSE",
             MUSIC_DATASET,
-            MUSIC_TABLE,
+            MUSIC_RESULTS,
             torch.nn.MSELoss(),
             erro_quadrático_médio,
             False,
@@ -282,7 +263,7 @@ def main() -> None:
             momentums=MOMENTUMS,
         )
         salvar_csv(resultados, table_dir)
-        melhor = (max if maximizar else min)(
+        melhor_resultado = (max if maximizar else min)(
             resultados,
             key=lambda resultado: resultado["valor_validação"],
         )
@@ -294,19 +275,19 @@ def main() -> None:
             ).item()
         resumo.append(
             {
-                "base": nome,
+                "dataset": nome,
                 "métrica": nome_métrica,
-                **{
-                    chave: melhor[chave]
-                    for chave in ("camadas", "ciclos", "taxa_aprendizado", "momentum")
-                },
+                "camadas": melhor_resultado["camadas"],
+                "ciclos": melhor_resultado["ciclos"],
+                "taxa_aprendizado": melhor_resultado["taxa_aprendizado"],
+                "momentum": melhor_resultado["momentum"],
                 "treinamento": métrica(melhor_modelo, partições.treinamento),
-                "validação": melhor["valor_validação"],
+                "validação": melhor_resultado["valor_validação"],
                 "teste": métrica(melhor_modelo, partições.teste),
                 "referência": referência,
             }
         )
-    salvar_csv(resumo, RESUMO)
+    salvar_csv(resumo, DIRETÓRIO / "relatorio" / "resumo.csv")
 
 
 if __name__ == "__main__":
