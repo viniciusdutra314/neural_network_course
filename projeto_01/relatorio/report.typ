@@ -77,6 +77,8 @@ ativação sigmoide nas camadas intermediárias. Para não comprimir os dados, t
 intermediárias têm a largura da entrada. Por exemplo, com uma camada intermediária,
 as arquiteturas são 13-13-3 para Wine e 68-68-2 para Music Origin.
 
+Antes do treinamento, os atributos são padronizados com média zero e desvio padrão um, assim não há diferenças numéricas grandes nos atributos.
+
 Na classificação, a classe prevista é a do neurônio de saída de maior ativação. Na regressão, as duas
 saídas lineares representam latitude e longitude.
 
@@ -89,15 +91,12 @@ pelo otimizador SGD (Stochastic Gradient Descent) com diferente valores de momen
 
 == Resultados
 
-Foram avaliadas as 81 combinações do produto cartesiano camadas_intermediária=[1, 2, 3]
-$times$ ciclos=[10, 20, 40] $times$ taxas_aprendizado=[$10^(-3)$, $10^(-2)$, $10^(-1)$]
-momentum=[0.0 , 0.5, 0,9].
-Os modelos são treinados para cada configuração usando a partição de treino (70% do dataset total)
-e a qualidade do modelo é testada pela partição de validação (10% do dataset), isso é feito
-para selecionar a priori o que seria o melhor conjunto de hiperparâmetros.
+Para cada base, foram avaliadas 81 configurações: três números de camadas intermediárias,
+três números de ciclos, três taxas de aprendizado e três valores de momentum. Cada rede foi
+treinada com o conjunto de treinamento e comparada pela métrica do conjunto de validação.
 
 
-=== Melhores Modelos
+=== Melhores modelos
 
 #let resumo = csv("resumo.csv", row-type: dictionary)
 #let wine = resumo.find(linha => linha.at("dataset") == "Wine")
@@ -108,10 +107,6 @@ para selecionar a priori o que seria o melhor conjunto de hiperparâmetros.
 #let decimal(valor) = {
   str(calc.round(float(valor) * 100) / 100).replace(".", ",")
 }
-#let raiz(valor) = decimal(calc.sqrt(float(valor)))
-#let redução(valor, referência) = percentual(
-  1 - float(valor) / float(referência),
-)
 #let taxa(valor) = {
   if valor == "0.001" { "1e-03" } else if valor == "0.01" { "1e-02" } else if valor == "0.1" { "1e-01" } else { valor }
 }
@@ -145,31 +140,11 @@ para selecionar a priori o que seria o melhor conjunto de hiperparâmetros.
   [#decimal(música.at("teste"))],
 )
 
-Para Wine, a melhor rede foi 13-13-3, com #wine.at("ciclos") ciclos, taxa
-#taxa(wine.at("taxa_aprendizado")) e momentum
-#wine.at("momentum").replace(".", ",").
-Ela obteve #percentual(wine.at("treinamento")) no treinamento e
-#percentual(wine.at("teste")) no teste. Para Music Origin, a rede 68-68-2,
-treinada por #música.at("ciclos") ciclos com taxa
-#taxa(música.at("taxa_aprendizado")) e momentum
-#música.at("momentum").replace(".", ","), atingiu MSE de
-#decimal(música.at("treinamento")) no treinamento e #decimal(música.at("teste"))
-no teste.
-
-Com poucos ciclos, o efeito do momentum ficou mais evidente. Em Wine, o melhor
-resultado com momentum 0,5 ou 0,9 foi 100% na validação, contra 72,22% com 0,0.
-Em Music Origin, embora a melhor configuração isolada tenha usado momentum zero,
-o MSE médio das 27 configurações caiu de 1758,71 para 1631,89 e 1584,89 ao variar
-o momentum de 0,0 para 0,5 e 0,9, respectivamente.
-
-O MSE geográfico é expresso em graus ao quadrado e combina latitude e longitude.
-Na base, os desvios padrão dessas coordenadas são 18,45° e 50,40°; portanto, a
-longitude domina o erro. O MSE de teste equivale a RMSE de
-#raiz(música.at("teste"))° por coordenada. Como referência, prever sempre a média
-do treinamento produz MSE #decimal(música.at("referência")) no teste: a rede o
-reduziu em #redução(música.at("teste"), música.at("referência")). Embora ainda
-grande, o erro é melhor que essa referência trivial e não corresponde diretamente
-a uma distância em quilômetros.
+Para Wine, a melhor configuração foi a rede 13-13-3, com
+#wine.at("ciclos") ciclos, taxa #taxa(wine.at("taxa_aprendizado")) e momentum
+#wine.at("momentum").replace(".", ","). Ela obteve
+#percentual(wine.at("treinamento")) no treinamento e
+#percentual(wine.at("teste")) no teste.
 
 #figure(
   block(width: 100%)[
@@ -177,11 +152,15 @@ a uma distância em quilômetros.
     #tabela-resultados("wine_tabela.csv", porcentagem: true)
   ],
   caption: [
-    Acurácia de validação das 81 configurações de Wine. Tons mais claros,
-    no extremo azul-claro da escala, indicam maior acurácia. Cada grupo de
-    colunas representa uma taxa de aprendizado e as subcolunas, o momentum.
+    Acurácia de validação das 81 configurações de Wine. Tons mais escuros
+    indicam maior acurácia.
   ],
 ) <tab:wine>
+Para Music Origin, a melhor configuração foi a rede 68-68-2, com
+#música.at("ciclos") ciclos, taxa #taxa(música.at("taxa_aprendizado")) e momentum
+#música.at("momentum").replace(".", ","). Ela obteve MSE de
+#decimal(música.at("treinamento")) no treinamento e
+#decimal(música.at("teste")) no teste.
 
 #figure(
   block(width: 100%)[
@@ -189,15 +168,19 @@ a uma distância em quilômetros.
     #tabela-resultados("music_tabela.csv", menor-melhor: true)
   ],
   caption: [
-    MSE de validação das 81 configurações de Music Origin. Tons mais claros,
-    no extremo azul-claro da escala, indicam menor erro. Cada grupo de colunas
-    representa uma taxa de aprendizado e as subcolunas, o momentum.
+    MSE de validação das 81 configurações de Music Origin. Tons mais escuros
+    indicam menor erro.
   ],
 ) <tab:música>
 
 == Conclusão
 
-As tabelas mostram que o aumento de profundidade piorou o desempenho,
-provavelmente devido a overfitting de possuir muitos paramêtros.
-Com poucos ciclos de treinamento, o momentum foi útil para acelerar a convergência
-em grande parte das configurações.
+A normalização dos atributos foi importante para os dois experimentos, antes eram necessários mais épocas do que só 100 para uma precisão parecida com a dos atributos normalizados. 
+
+O momentum acelerou a convergência em Wine. Com 50 ciclos, os valores maiores de
+momentum produziram as melhores acurácias, já com 100 ciclos, os modelos com momentum
+já tinham alcançado 100% na validação.
+
+Uma camada intermediária foi suficiente para as duas bases. As redes com duas ou
+três camadas pioraram os resultados, isso pode indicar overfitting
+ou que o número de exemplos não exige redes mais profundas.

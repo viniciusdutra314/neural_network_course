@@ -65,6 +65,23 @@ def particiona_em_treinamento_validação_teste(
     )
 
 
+def normalizar_atributos(partições: Partições) -> Partições:
+    atributos_treinamento = partições.treinamento.atributos
+    média = atributos_treinamento.mean(dim=0)
+    desvio = atributos_treinamento.std(dim=0)
+    desvio_sem_zeros = torch.where(
+        desvio == 0,
+        torch.ones_like(desvio),
+        desvio,
+    )
+
+    def normalizar(dataset: Dataset) -> Dataset:
+        atributos = (dataset.atributos - média) / desvio_sem_zeros
+        return Dataset(dataset.alvos, atributos)
+
+    return Partições(*(normalizar(dataset) for dataset in partições))
+
+
 def criar_modelo(
     neuronios_entrada: int,
     camadas_intermediárias: Sequence[int],
@@ -154,6 +171,7 @@ def treinos_com_diferentes_hiperparâmetros(
         nums_camadas, nums_ciclos, taxas_aprendizado, momentums
     )
     for num_camadas, num_ciclos, taxa_aprendizado, momentum in configurações:
+        _ = torch.manual_seed(SEED + num_camadas)
         modelo = criar_modelo(
             neuronios_entrada,
             [neuronios_entrada] * num_camadas,
@@ -217,7 +235,7 @@ def main() -> None:
     )
 
     CAMADAS = (1, 2, 3)
-    CICLOS = (10, 20, 40)
+    CICLOS = (10, 50, 100)
     TAXAS_APRENDIZADO = (1e-3, 1e-2, 1e-1)
     MOMENTUMS = (0.0, 0.5, 0.9)
 
@@ -251,7 +269,9 @@ def main() -> None:
         métrica,
         maximizar,
     ) in configurações:
-        partições = particiona_em_treinamento_validação_teste(dataset)
+        partições = normalizar_atributos(
+            particiona_em_treinamento_validação_teste(dataset)
+        )
         resultados, melhor_modelo = treinos_com_diferentes_hiperparâmetros(
             partições,
             loss_fn,

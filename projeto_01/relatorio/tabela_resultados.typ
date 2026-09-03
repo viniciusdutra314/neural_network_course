@@ -41,7 +41,7 @@
   } else {
     (valor - mínimo) / (máximo - mínimo)
   }
-  // Azul escuro representa o pior valor; azul claro, o melhor.
+  // Azul-claro representa o pior valor; azul-escuro, o melhor.
   let escala = gradient.linear( rgb("#91bffa"),rgb("#0B3C6F"))
   let cor(valor) = escala.sample(qualidade(valor) * 100%)
 
@@ -68,7 +68,7 @@
         for momentum in momentums {
           let valor = valor-validação(camada, ciclo, taxa, momentum)
           células.push(table.cell(fill: cor(valor))[
-            #text(fill: if qualidade(valor) >= 0.5 { black } else { white })[
+            #text(fill: if qualidade(valor) >= 0.5 { white } else { black })[
               #formatar(valor)
             ]
           ])
